@@ -68,11 +68,50 @@ def _stream_download(url: str, dest: Path, chunk_size: int = 1 << 16) -> None:
 
 
 def _unzip(zip_path: Path, dest_dir: Path) -> None:
+    """Extract the TLC zones zip and flatten any subdirectory layout.
+
+    The TLC zip historically contained shapefiles at the zip root, but newer
+    versions nest them in a 'taxi_zones/' subdirectory. We extract everything,
+    move shapefile components up to dest_dir if needed, then verify the
+    expected files exist.
+    """
     log.info("Unzipping %s", zip_path.name)
     with zipfile.ZipFile(zip_path) as z:
+        members = z.namelist()
+        log.info("Zip contents: %s", ", ".join(members))
         z.extractall(dest_dir)
+
+    # Flatten: if the shapefile is inside a subdirectory, move all
+    # taxi_zones.* files up to dest_dir.
+    for shp_in_subdir in dest_dir.rglob("taxi_zones.shp"):
+        if shp_in_subdir.parent != dest_dir:
+            log.info("Flattening shapefile from %s -> %s",
+                     shp_in_subdir.parent.relative_to(dest_dir), dest_dir.name)
+            for sibling in shp_in_subdir.parent.iterdir():
+                target = dest_dir / sibling.name
+                if target.exists():
+                    target.unlink()
+                sibling.rename(target)
+            # Try to remove the now-empty subdirectory.
+            try:
+                shp_in_subdir.parent.rmdir()
+            except OSError:
+                pass
+            break
+
+    # Verify the four required shapefile components are present.
+    required = (".shp", ".shx", ".dbf", ".prj")
+    missing = [ext for ext in required
+               if not (dest_dir / f"taxi_zones{ext}").exists()]
+    if missing:
+        existing = sorted(p.name for p in dest_dir.glob("taxi_zones.*"))
+        raise RuntimeError(
+            f"Shapefile incomplete after unzip. Missing: {missing}. "
+            f"Found: {existing}"
+        )
+
     extracted = sorted(p.name for p in dest_dir.glob("taxi_zones.*"))
-    log.info("Extracted: %s", ", ".join(extracted))
+    log.info("Extracted shapefile components: %s", ", ".join(extracted))
 
 
 def _shapefile_to_geojson(shp_path: Path, geojson_path: Path) -> int:

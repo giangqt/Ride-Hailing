@@ -1,15 +1,10 @@
 # Phase 1 cron schedule (per spec, page 6 of Project_Preview_Pipeline.pdf).
-#
-# Install with:
-#     crontab -e
-# then paste these lines, replacing PROJECT_DIR with your absolute path
-# (e.g. /home/quan/ride-hailing). Use absolute paths in cron.
 
 # -----------------------------------------------------------------------
 # Common environment for all jobs
 # -----------------------------------------------------------------------
-PROJECT_DIR=/home/quan/ride-hailing
-PYTHON=/home/quan/ride-hailing/.venv/bin/python
+PROJECT_DIR=/home/truonggiang/ride-hailing
+PYTHON=/home/truonggiang/ride-hailing/.venv/bin/python
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
