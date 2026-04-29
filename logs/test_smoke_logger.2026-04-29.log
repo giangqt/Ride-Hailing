@@ -1,0 +1,1 @@
+2026-04-29 20:17:46 | INFO    | test_smoke_logger | smoke test - this should appear in logs/test_smoke_logger.*.log

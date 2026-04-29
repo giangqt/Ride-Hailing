@@ -1,0 +1,20 @@
+# Phase 1 (Stage 1: Data Collection) dependencies only.
+# Heavier deps (Spark, Kafka client beyond optional, Grafana) belong to
+# their respective stages.
+
+# HTTP + env
+requests>=2.31,<3.0
+python-dotenv>=1.0,<2.0
+
+# Parquet read for download_tlc.py structural check & validate_data.py
+pyarrow>=15.0,<20.0
+pandas>=2.1,<3.0
+
+# Geospatial: only required for download_zones.py
+geopandas>=0.14,<2.0
+shapely>=2.0,<3.0
+pyproj>=3.6,<4.0
+
+# Optional Kafka publish from fetch_weather.py once Stage 2 is up.
+# Comment out for pure Phase 1 install if you don't have librdkafka yet.
+kafka-python>=2.0,<3.0

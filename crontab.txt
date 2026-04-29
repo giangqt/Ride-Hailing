@@ -1,0 +1,38 @@
+# Phase 1 cron schedule (per spec, page 6 of Project_Preview_Pipeline.pdf).
+#
+# Install with:
+#     crontab -e
+# then paste these lines, replacing PROJECT_DIR with your absolute path
+# (e.g. /home/quan/ride-hailing). Use absolute paths in cron.
+
+# -----------------------------------------------------------------------
+# Common environment for all jobs
+# -----------------------------------------------------------------------
+PROJECT_DIR=/home/quan/ride-hailing
+PYTHON=/home/quan/ride-hailing/.venv/bin/python
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# -----------------------------------------------------------------------
+# 1) Monthly TLC download - 02:00 on the 1st of every month
+#    Then validate the latest file. If validation fails, email goes to
+#    MAILTO (set above) so you find out before Stage 3 breaks.
+# -----------------------------------------------------------------------
+0 2 1 * * cd $PROJECT_DIR && $PYTHON scripts/download_tlc.py >> logs/cron.download_tlc.log 2>&1 && $PYTHON scripts/validate_data.py --latest >> logs/cron.validate.log 2>&1
+
+# -----------------------------------------------------------------------
+# 2) Hourly weather fetch - top of every hour
+# -----------------------------------------------------------------------
+0 * * * * cd $PROJECT_DIR && $PYTHON scripts/fetch_weather.py >> logs/cron.fetch_weather.log 2>&1
+
+# -----------------------------------------------------------------------
+# Notes
+# -----------------------------------------------------------------------
+# - download_zones.py is one-time. Run manually:
+#       python scripts/download_zones.py
+# - To backfill historical TLC files all the way to Feb 2019:
+#       python scripts/download_tlc.py            # auto-detects gaps
+#   or for a specific range:
+#       python scripts/download_tlc.py --since 2024-01
+# - To validate every file already on disk:
+#       python scripts/validate_data.py
