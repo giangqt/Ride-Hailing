@@ -1,9 +1,6 @@
 .env
 .venv/
-data/raw_trips/
-data/weather/hourly_weather.csv
-data/validation_reports/
-data/zones/taxi_zones.zip
+data/
 logs/
 __pycache__/
 *.pyc
