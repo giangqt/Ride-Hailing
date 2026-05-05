@@ -18,3 +18,5 @@ pyproj>=3.6,<4.0
 # Optional Kafka publish from fetch_weather.py once Stage 2 is up.
 # Comment out for pure Phase 1 install if you don't have librdkafka yet.
 kafka-python>=2.0,<3.0
+confluent-kafka>=2.4.0
+pytest>=7.4
