@@ -128,43 +128,67 @@ def _csv_append(path: Path, record: dict) -> None:
         writer.writerow({k: record.get(k) for k in CSV_FIELDS})
 
 
-# ---------------------------------------------------------------------------
-# Optional Kafka publish (skipped silently if KAFKA_BROKERS is empty or
-# the kafka client isn't installed - useful in Phase 1 before Stage 2 is up).
-# ---------------------------------------------------------------------------
 def _publish_to_kafka(record: dict) -> bool:
+    """Publish a single weather observation to the weather-events topic.
+
+    Returns True only on confirmed delivery, False if KAFKA_BROKERS is
+    unset, the client isn't installed, or delivery failed/timed out.
+
+    The producer is created and torn down per-call. That's wasteful at
+    high throughput, but fetch_weather runs once per hour via cron — the
+    overhead (single TCP handshake, producer init) is negligible compared
+    to the hourly cadence and keeps the code simple. If we ever needed
+    higher cadence, we'd switch to a long-lived producer.
+    """
     if not KAFKA_BROKERS:
         log.debug("KAFKA_BROKERS not set - skipping Kafka publish.")
         return False
-    try:
-        from kafka import KafkaProducer  # type: ignore
-    except ImportError:
-        log.warning("kafka-python not installed - skipping Kafka publish.")
-        return False
 
     try:
-        producer = KafkaProducer(
-            bootstrap_servers=[b.strip() for b in KAFKA_BROKERS.split(",")],
-            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-            key_serializer=lambda v: v.encode("utf-8") if v else None,
-            acks="all",
-            retries=3,
-            request_timeout_ms=10_000,
+        from confluent_kafka import Producer  # type: ignore
+    except ImportError:
+        log.warning("confluent-kafka not installed - skipping Kafka publish.")
+        return False
+
+    # Capture delivery outcome from the async callback so we can return
+    # success/failure synchronously after flush().
+    delivery = {"ok": False, "error": None}
+
+    def _on_delivery(err, msg):
+        if err is not None:
+            delivery["error"] = err
+        else:
+            delivery["ok"] = True
+
+    try:
+        producer = Producer({
+            "bootstrap.servers": KAFKA_BROKERS,
+            "client.id": "fetch-weather",
+            "acks": "all",
+            "enable.idempotence": True,
+            "compression.type": "zstd",
+            "message.timeout.ms": 10_000,
+        })
+        producer.produce(
+            topic=KAFKA_WEATHER_TOPIC,
+            key=record["station_id"].encode("utf-8"),
+            value=json.dumps(record).encode("utf-8"),
+            on_delivery=_on_delivery,
         )
-        future = producer.send(
-            KAFKA_WEATHER_TOPIC,
-            key=record["station_id"],
-            value=record,
-        )
-        future.get(timeout=10)
-        producer.flush()
-        producer.close()
-        log.info("Published to Kafka topic %s", KAFKA_WEATHER_TOPIC)
-        return True
+        # Block until the broker acks (or the message times out).
+        unflushed = producer.flush(timeout=15)
+        if unflushed:
+            log.error("Kafka flush timed out with %d unflushed messages", unflushed)
+            return False
+
+        if delivery["ok"]:
+            log.info("Published to Kafka topic %s", KAFKA_WEATHER_TOPIC)
+            return True
+        log.error("Kafka delivery failed: %s", delivery["error"])
+        return False
     except Exception as e:
         log.error("Kafka publish failed: %s", e)
         return False
-
 
 # ---------------------------------------------------------------------------
 # Entry point
