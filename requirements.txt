@@ -19,3 +19,4 @@ pyproj>=3.6,<4.0
 # Comment out for pure Phase 1 install if you don't have librdkafka yet.
 confluent-kafka>=2.4.0
 pytest>=7.4
+pyspark==3.5.1
