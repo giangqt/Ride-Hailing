@@ -1,15 +1,15 @@
 # =============================================================================
 # Ride-Hailing Mobility Pipeline — Docker Compose
 # =============================================================================
-# Phase 2 (current): Kafka cluster (3 brokers, KRaft) + Schema Registry + UI
-# Phase 3 will add:  spark-master, spark-worker-1, spark-worker-2
-# Phase 5 will add:  postgres (TimescaleDB)
-# Phase 6 will add:  grafana
+# Phase 2: Kafka cluster (3 brokers, KRaft) + Schema Registry + UI
+# Phase 3: Spark master + 2 workers
+# Phase 5: Postgres + TimescaleDB  (pulled forward — needed by Spark enrichment)
+# Phase 6: Grafana (TODO)
 #
-# Bring up:        docker compose up -d
-# Tear down:       docker compose down
-# Wipe data:       docker compose down -v
-# Watch logs:      docker compose logs -f kafka-1
+# Bring up:   docker compose up -d
+# Tear down:  docker compose down
+# Wipe data:  docker compose down -v
+# Logs:       docker compose logs -f <service>
 # =============================================================================
 
 name: ride-hailing
@@ -17,9 +17,7 @@ name: ride-hailing
 services:
 
   # ---------------------------------------------------------------------------
-  # Kafka brokers (KRaft mode — no Zookeeper)
-  # All three are combined broker+controller nodes for simplicity in dev.
-  # Three nodes give us a quorum of 2, so we can tolerate one broker dying.
+  # Kafka brokers (KRaft mode, 3 combined broker+controller nodes)
   # ---------------------------------------------------------------------------
 
   kafka-1:
@@ -28,41 +26,28 @@ services:
     hostname: kafka-1
     restart: unless-stopped
     ports:
-      - "9092:9092"   # external listener (for host-side clients)
+      - "9092:9092"
     environment:
-      # --- KRaft identity ---
       CLUSTER_ID: 'eWOMyUriTkKbGu_88D520w'
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: 'broker,controller'
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093'
 
-      # --- Listeners ---
-      # INTERNAL  : in-Docker clients (Spark, kafka-ui, schema-registry)
-      # EXTERNAL  : host-side clients (replay_producer running on host, debug)
-      # CONTROLLER: KRaft consensus traffic (broker-to-broker only)
+      # INTERNAL = in-Docker | EXTERNAL = host-side | CONTROLLER = KRaft consensus
       KAFKA_LISTENERS: 'INTERNAL://0.0.0.0:19092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093'
       KAFKA_ADVERTISED_LISTENERS: 'INTERNAL://kafka-1:19092,EXTERNAL://localhost:9092'
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT'
       KAFKA_INTER_BROKER_LISTENER_NAME: 'INTERNAL'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
 
-      # --- Replication & durability (3-broker dev cluster) ---
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
       KAFKA_DEFAULT_REPLICATION_FACTOR: 3
       KAFKA_MIN_INSYNC_REPLICAS: 2
 
-      # --- Topic auto-create OFF ---
-      # All topics are created explicitly by scripts/create_topics.py with the
-      # right partitions, retention, and key. Letting Kafka auto-create them
-      # would silently use defaults that break our partitioning strategy.
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
-
-      # --- Group rebalance tuning (faster startup in dev) ---
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-
-      # --- JVM heap (1G is plenty for replay workloads) ---
       KAFKA_HEAP_OPTS: '-Xms512M -Xmx1G'
     volumes:
       - kafka-1-data:/var/lib/kafka/data
@@ -148,10 +133,7 @@ services:
       start_period: 30s
 
   # ---------------------------------------------------------------------------
-  # Schema Registry — keeps a versioned record of message schemas.
-  # We're using JSON (not Avro) for ride-events, but Schema Registry is
-  # included now so Phase 3 Spark jobs can register schemas and so we have
-  # the option to migrate to Avro later without re-architecting.
+  # Schema Registry (JSON for now; ready for Avro migration later)
   # ---------------------------------------------------------------------------
 
   schema-registry:
@@ -174,8 +156,7 @@ services:
       - ride-net
 
   # ---------------------------------------------------------------------------
-  # Kafka UI — browser dashboard for inspecting topics, messages, consumer
-  # groups, and broker health. Available at http://localhost:8080.
+  # Kafka UI — http://localhost:8080
   # ---------------------------------------------------------------------------
 
   kafka-ui:
@@ -195,7 +176,12 @@ services:
       DYNAMIC_CONFIG_ENABLED: 'true'
     networks:
       - ride-net
-  
+
+  # ---------------------------------------------------------------------------
+  # Spark (1 master + 2 workers, standalone mode)
+  # Master UI: http://localhost:8082   Driver UI: http://localhost:4040
+  # ---------------------------------------------------------------------------
+
   spark-master:
     image: apache/spark:3.5.1-scala2.12-java17-python3-ubuntu
     container_name: spark-master
@@ -208,6 +194,9 @@ services:
     environment:
       SPARK_NO_DAEMONIZE: 'true'
       KAFKA_BROKERS: 'kafka-1:19092,kafka-2:19092,kafka-3:19092'
+      PG_URL: 'jdbc:postgresql://postgres:5432/rides'
+      PG_USER: 'rides'
+      PG_PASSWORD: 'rides'
       CHECKPOINT_DIR: '/checkpoints'
     command: >
       /opt/spark/bin/spark-class
@@ -217,9 +206,6 @@ services:
       - ./spark:/app/spark:ro
       - ./scripts:/app/scripts:ro
       - spark-checkpoints:/checkpoints
-      - spark-ivy:/home/spark/.ivy2
-      - spark-ivy:/home/spark/.ivy2
-      - spark-ivy:/home/spark/.ivy2
       - spark-ivy:/home/spark/.ivy2
     networks:
       - ride-net
@@ -245,8 +231,6 @@ services:
       - ./scripts:/app/scripts:ro
       - spark-checkpoints:/checkpoints
       - spark-ivy:/home/spark/.ivy2
-      - spark-ivy:/home/spark/.ivy2
-      - spark-ivy:/home/spark/.ivy2
     networks:
       - ride-net
     depends_on:
@@ -269,12 +253,36 @@ services:
       - ./scripts:/app/scripts:ro
       - spark-checkpoints:/checkpoints
       - spark-ivy:/home/spark/.ivy2
-      - spark-ivy:/home/spark/.ivy2
-      - spark-ivy:/home/spark/.ivy2
     networks:
       - ride-net
     depends_on:
       spark-master: { condition: service_started }
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL + TimescaleDB
+  # Stores taxi_zones (now), plus all 10 analytical tables (later).
+  # ---------------------------------------------------------------------------
+
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: postgres
+    hostname: postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: rides
+      POSTGRES_USER: rides
+      POSTGRES_PASSWORD: rides
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - ride-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rides -d rides"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 # =============================================================================
 # Networks & volumes
@@ -291,3 +299,4 @@ volumes:
   kafka-3-data:
   spark-checkpoints:
   spark-ivy:
+  postgres-data:

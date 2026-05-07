@@ -5,13 +5,14 @@ This module exists so every Spark job we write can be run two ways
 without code changes:
 
     Host mode (fast dev iteration):
-        python spark/hello_kafka.py
+        python spark/foo.py
         # → master=local[*], reads .venv packages, JVM starts in seconds
 
     Docker mode (prod-shape demo):
         docker compose exec spark-master spark-submit \\
             --master spark://spark-master:7077 \\
-            /app/spark/hello_kafka.py
+            --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1 \\
+            /app/spark/foo.py
         # → master=spark cluster, jobs distributed across spark-worker-{1,2}
 
 The mode is selected by environment variables:
@@ -21,7 +22,7 @@ The mode is selected by environment variables:
     CHECKPOINT_DIR   - "./checkpoints" (host) or "/checkpoints" (docker)
 
 In host mode, defaults work out of the box. In docker mode, the values are
-injected by docker-compose.yml.
+injected by docker-compose.yml on the spark-master service.
 """
 
 from __future__ import annotations
@@ -34,10 +35,23 @@ from pyspark.sql import SparkSession
 
 # Pinned Maven coordinates. The Kafka package version MUST match the Spark
 # version exactly — kafka-0-10 means "Kafka client API 0.10+", which is
-# what current Kafka brokers speak. Don't be misled by the "0.10" suffix —
-# it works against Kafka 3.x cluster fine.
+# what current Kafka brokers speak.
 SPARK_VERSION = "3.5.1"
-KAFKA_PACKAGE = f"org.apache.spark:spark-sql-kafka-0-10_2.12:{SPARK_VERSION}"
+POSTGRES_JDBC_VERSION = "42.7.3"
+
+# Maven coordinates for connector JARs we need at runtime. Comma-separated
+# list passed to spark.jars.packages (host mode) or --packages (docker mode).
+RUNTIME_PACKAGES = ",".join([
+    f"org.apache.spark:spark-sql-kafka-0-10_2.12:{SPARK_VERSION}",
+    f"org.postgresql:postgresql:{POSTGRES_JDBC_VERSION}",
+])
+
+# Project-wide timezone. NYC TLC trip timestamps are local New York time
+# (with DST). Setting this on every job means hour(), dayofweek(), window()
+# etc. all compute against NYC time, even though Kafka stores timestamps
+# canonically as UTC instants. Single source of truth: change here, every
+# job picks it up.
+PROJECT_TIMEZONE = "America/New_York"
 
 
 def get_session(app_name: str) -> SparkSession:
@@ -57,22 +71,28 @@ def get_session(app_name: str) -> SparkSession:
     builder = (
         SparkSession.builder
         .appName(app_name)
+        # Tune shuffle partitions for our small cluster. Default is 200,
+        # wildly excessive for streaming on 2 workers (4 cores total).
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.sql.streaming.metricsEnabled", "true")
+        # Kafka source requires adaptive query execution disabled for streaming
+        # — plan changes mid-query corrupt state stores.
         .config("spark.sql.adaptive.enabled", "false")
+        # Project-wide timezone for temporal feature consistency.
+        .config("spark.sql.session.timeZone", PROJECT_TIMEZONE)
     )
 
     if explicit_master:
         builder = builder.master(explicit_master)
         if explicit_master.startswith("local"):
-            builder = builder.config("spark.jars.packages", KAFKA_PACKAGE)
+            builder = builder.config("spark.jars.packages", RUNTIME_PACKAGES)
     elif launched_by_submit:
         # spark-submit's --master and --packages flags will be honored.
         # Don't call .master() or set spark.jars.packages — would override.
         pass
     else:
         # Host mode: default to local[*] and pull the Kafka JAR via Maven.
-        builder = builder.master("local[*]").config("spark.jars.packages", KAFKA_PACKAGE)
+        builder = builder.master("local[*]").config("spark.jars.packages", RUNTIME_PACKAGES)
 
     return builder.getOrCreate()
 
