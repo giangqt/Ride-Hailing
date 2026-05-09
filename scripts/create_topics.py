@@ -64,6 +64,8 @@ TOPICS: list[TopicSpec] = [
               "ARIMA/ETS predictions with confidence intervals"),
     TopicSpec("weather-events",        3, "station_id",     48 * 3_600_000,
               "Hourly weather observations from fetch_weather.py"),
+    TopicSpec("ride-events-enriched-weather", 12, "PULocationID", 48 * 3_600_000,
+          "Trip events fully enriched with zone metadata + weather"),
 ]
 
 # Replication factor 3 matches our 3-broker cluster. min.insync.replicas=2
