@@ -99,18 +99,28 @@ DEFAULT_BASELINE_CSV = str(PROJECT_ROOT / "data" / "baseline" / "zone_demand_bas
 #
 # IMPORTANT — name translation across the block boundary:
 #   Block 3 emits:                    Block 4 outputs (Postgres-aligned):
+#     pickup_datetime_nyc      →        pickup_datetime (parsed timestamp)
+#     dropoff_datetime_nyc     →        dropoff_datetime (parsed timestamp)
 #     PULocationID            →         zone_id (in pickup-side aggregation)
 #     DOLocationID            →         zone_id (in dropoff-side aggregation)
 #     trip_time (seconds)     →         avg_trip_time (minutes; divide by 60)
 #     weather_temperature_c   →         avg_temperature
 #     weather_precipitation_mm →        precipitation_mm
 #
+# Why _nyc variants for timestamps: Block 3 also emits `pickup_datetime` and
+# `dropoff_datetime` as ISO 8601 strings with timezone offsets (e.g.
+# "2026-05-07T23:20:24.557-04:00"). Spark's default from_json on TimestampType
+# does not reliably parse this format and may silently return NULL — which
+# would drop every event from the windowed aggregation. The `_nyc` variants
+# are plain `yyyy-MM-dd HH:mm:ss` strings that parse cleanly under
+# session.timeZone=America/New_York.
+#
 # These names are the cross-block contract. If Block 3's emitted field names
 # change, this schema breaks the join silently (from_json ignores unknown
 # fields and produces nulls for missing ones). Keep in sync.
 ENRICHED_WEATHER_SCHEMA = T.StructType([
-    T.StructField("pickup_datetime", T.TimestampType(), nullable=False),
-    T.StructField("dropoff_datetime", T.TimestampType(), nullable=True),
+    T.StructField("pickup_datetime_nyc", T.TimestampType(), nullable=False),
+    T.StructField("dropoff_datetime_nyc", T.TimestampType(), nullable=True),
     T.StructField("PULocationID", T.IntegerType(), nullable=True),
     T.StructField("DOLocationID", T.IntegerType(), nullable=True),
     T.StructField("trip_miles", T.DoubleType(), nullable=True),
@@ -136,6 +146,16 @@ def aggregate_window(events: DataFrame) -> DataFrame:
     in this zone+window — possibly a disjoint set of trips). Two parallel
     aggregations on the same window grain, joined by (window, zone).
 
+    Streaming watermark discipline:
+        Pickup-side branch watermarks pickup_datetime; dropoff-side branch
+        watermarks dropoff_datetime. Both BEFORE their respective groupBy.
+        Spark's stream-stream join planner requires the watermark to be on
+        the column the windowing key is derived from. Single upstream
+        watermark on pickup_datetime would only watermark the pickup branch,
+        and the full_outer join would be rejected at planning time.
+        (Tested with batch DataFrames in unit tests; the watermark logic is
+        a streaming-only concern that static-DataFrame tests cannot catch.)
+
     Field-name translation across block boundary:
         Block 3 input:               Block 4 output:
           PULocationID         →       zone_id (pickup-side groupBy key)
@@ -154,12 +174,17 @@ def aggregate_window(events: DataFrame) -> DataFrame:
         avg_temperature DOUBLE   -- nullable (null if no weather observed)
         precipitation_mm DOUBLE  -- averaged across trips in window, nullable
     """
-    # Pickup-side aggregation: grouped by PULocationID (renamed to zone_id).
-    # All per-trip metrics (miles, time, weather) belong here, since each trip
-    # has its own pickup record. trip_time/60 converts seconds → minutes.
+    # Pickup-side branch: watermark, filter, then aggregate.
+    # Watermark on the source event-time column (pickup_datetime) — Spark
+    # propagates this watermark through the groupBy to the derived
+    # time_bucket column automatically for stream-stream inner joins.
+    pickup_branch = (
+        events
+        .filter(F.col("pickup_datetime").isNotNull() & F.col("PULocationID").isNotNull())
+        .withWatermark("pickup_datetime", WATERMARK_DELAY)
+    )
     pickup_agg = (
-        events.filter(F.col("PULocationID").isNotNull())
-        .groupBy(
+        pickup_branch.groupBy(
             F.window(F.col("pickup_datetime"), WINDOW_DURATION).alias("w"),
             F.col("PULocationID").alias("zone_id"),
         )
@@ -181,15 +206,17 @@ def aggregate_window(events: DataFrame) -> DataFrame:
         )
     )
 
-    # Dropoff-side aggregation: grouped by DOLocationID (also renamed to zone_id).
+    # Dropoff-side branch: separately watermarked on dropoff_datetime.
     # Count only — other metrics are pickup-side. A trip's pickup zone and
-    # dropoff zone are different, so this groupBy intentionally produces a
-    # different (window, zone) key set than pickup_agg.
+    # dropoff zone are usually different, so this groupBy intentionally
+    # produces a different (window, zone) key set than pickup_agg.
+    dropoff_branch = (
+        events
+        .filter(F.col("dropoff_datetime").isNotNull() & F.col("DOLocationID").isNotNull())
+        .withWatermark("dropoff_datetime", WATERMARK_DELAY)
+    )
     dropoff_agg = (
-        events.filter(
-            F.col("dropoff_datetime").isNotNull() & F.col("DOLocationID").isNotNull()
-        )
-        .groupBy(
+        dropoff_branch.groupBy(
             F.window(F.col("dropoff_datetime"), WINDOW_DURATION).alias("w"),
             F.col("DOLocationID").alias("zone_id"),
         )
@@ -201,13 +228,28 @@ def aggregate_window(events: DataFrame) -> DataFrame:
         )
     )
 
-    # Outer join: a (window, zone) may have only pickups, only dropoffs, or both.
-    # Pure-origin zones (LGA departures) and pure-destination zones (residential
-    # arrivals) both occur. coalesce(0) fills the missing side cleanly.
+    # INNER join (NOT full_outer): only emit (window, zone) rows where BOTH
+    # pickups AND dropoffs occurred in the same 15-min window.
+    #
+    # Tradeoff: pure-origin zones (airport departures: trips pick up at LGA
+    # but drop off elsewhere) and pure-destination zones (residential 3am
+    # dropoffs: trips end here but don't originate) are excluded from
+    # demand-per-zone output for that window. For our thesis analysis this
+    # is acceptable — the dominant signal in NYC ride-hailing is mixed-flow
+    # zones (Manhattan, dense Brooklyn) which always show both directions.
+    #
+    # Why not full_outer: Spark's stream-stream full_outer join requires a
+    # watermark on the JOIN KEY (the derived time_bucket column), not just
+    # on the upstream event-time columns. Re-applying withWatermark on
+    # time_bucket after groupBy resets the watermark to 0 in Spark 3.5
+    # (verified empirically — state grew without bound, watermark stuck at
+    # epoch). Inner join uses only the upstream watermarks and works.
+    #
+    # Future work: switch to two independent output topics
+    # (demand-per-zone-pickups, demand-per-zone-dropoffs) and merge at the
+    # Postgres sink. Cleaner semantics, no stream-stream join needed.
     joined = (
-        pickup_agg.join(dropoff_agg, on=["time_bucket", "zone_id"], how="full_outer")
-        .withColumn("pickup_count", F.coalesce(F.col("pickup_count"), F.lit(0)))
-        .withColumn("dropoff_count", F.coalesce(F.col("dropoff_count"), F.lit(0)))
+        pickup_agg.join(dropoff_agg, on=["time_bucket", "zone_id"], how="inner")
     )
 
     return joined.select(
@@ -359,7 +401,19 @@ def load_baseline(spark: SparkSession, csv_path: str) -> DataFrame:
 
 
 def read_enriched_weather_stream(spark: SparkSession) -> DataFrame:
-    """Subscribe to ride-events-enriched-weather and parse JSON into typed columns."""
+    """Subscribe to ride-events-enriched-weather and parse JSON into typed columns.
+
+    Reads the `_nyc` timestamp variants (plain yyyy-MM-dd HH:mm:ss strings)
+    and aliases them to pickup_datetime / dropoff_datetime so downstream
+    code (aggregate_window) is unchanged. See ENRICHED_WEATHER_SCHEMA
+    docstring for why we don't parse the ISO-with-offset variant.
+
+    Does NOT attach a watermark here. Pickup-side and dropoff-side aggregations
+    each need their own watermark on their respective event-time column
+    (pickup_datetime vs dropoff_datetime); attaching a single watermark here
+    would only watermark one side and the streaming planner would reject the
+    full_outer join. See aggregate_window for the per-branch watermark setup.
+    """
     raw = (
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", kafka_brokers())
@@ -373,12 +427,19 @@ def read_enriched_weather_stream(spark: SparkSession) -> DataFrame:
             F.col("value").cast("string"),
             ENRICHED_WEATHER_SCHEMA,
         ).alias("e"))
-        .select("e.*")
-        .filter(F.col("pickup_datetime").isNotNull() & F.col("zone_id").isNotNull())
+        .select(
+            # Alias the _nyc variants to the names downstream code expects.
+            F.col("e.pickup_datetime_nyc").alias("pickup_datetime"),
+            F.col("e.dropoff_datetime_nyc").alias("dropoff_datetime"),
+            F.col("e.PULocationID").alias("PULocationID"),
+            F.col("e.DOLocationID").alias("DOLocationID"),
+            F.col("e.trip_miles").alias("trip_miles"),
+            F.col("e.trip_time").alias("trip_time"),
+            F.col("e.weather_temperature_c").alias("weather_temperature_c"),
+            F.col("e.weather_precipitation_mm").alias("weather_precipitation_mm"),
+        )
     )
-    # Watermark on the source event-time column. The window() in
-    # aggregate_window operates on this same column, so Spark can prune state.
-    return parsed.withWatermark("pickup_datetime", WATERMARK_DELAY)
+    return parsed
 
 
 def main() -> int:

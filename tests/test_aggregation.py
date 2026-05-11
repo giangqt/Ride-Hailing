@@ -222,9 +222,25 @@ class TestAggregateWindow:
     """The pure-aggregation transform. No baseline join, no hotspot logic."""
 
     def test_groups_by_15min_window_and_zone(self, spark):
-        # Two trips in same 15-min window, same zone → one row, count=2
-        # One trip in next window, same zone → second row, count=1
-        # One trip in same window as first pair, different zone → third row, count=1
+        """Inner-join semantics: every emitted (window, zone) has BOTH pickups
+        and dropoffs in that window. We construct trips so that the asserted
+        (window, zone) keys are all satisfied on both sides.
+
+        Trips:
+          1. PU zone 230 @ 14:30, DO zone 230 @ 14:42 → contributes pickup to
+             (14:30, 230) and dropoff to (14:30, 230).
+          2. PU zone 230 @ 14:38, DO zone 230 @ 14:55 → pickup (14:30, 230),
+             dropoff (14:45, 230).
+          3. PU zone 230 @ 14:46, DO zone 230 @ 14:58 → pickup (14:45, 230),
+             dropoff (14:45, 230).
+          4. PU zone 138 @ 14:32, DO zone 138 @ 14:40 → pickup (14:30, 138),
+             dropoff (14:30, 138).
+
+        Expected emitted (window, zone) keys after inner join:
+          (14:30, 230): 2 pickups, 1 dropoff
+          (14:45, 230): 1 pickup, 2 dropoffs
+          (14:30, 138): 1 pickup, 1 dropoff
+        """
         rows = [
             {"pickup_iso": "2024-07-15T14:30:00", "dropoff_iso": "2024-07-15T14:42:00",
              "PULocationID": 230, "trip_miles": 2.0, "trip_time_seconds": 720.0,
@@ -232,33 +248,36 @@ class TestAggregateWindow:
             {"pickup_iso": "2024-07-15T14:38:00", "dropoff_iso": "2024-07-15T14:55:00",
              "PULocationID": 230, "trip_miles": 4.0, "trip_time_seconds": 1020.0,
              "weather_temperature_c": 25.0, "weather_precipitation_mm": 0.0},
-            {"pickup_iso": "2024-07-15T14:46:00", "dropoff_iso": "2024-07-15T15:05:00",
-             "PULocationID": 230, "trip_miles": 6.0, "trip_time_seconds": 1140.0,
+            {"pickup_iso": "2024-07-15T14:46:00", "dropoff_iso": "2024-07-15T14:58:00",
+             "PULocationID": 230, "trip_miles": 6.0, "trip_time_seconds": 720.0,
              "weather_temperature_c": 25.0, "weather_precipitation_mm": 0.0},
-            {"pickup_iso": "2024-07-15T14:32:00", "dropoff_iso": "2024-07-15T14:50:00",
-             "PULocationID": 138, "trip_miles": 8.0, "trip_time_seconds": 1080.0,
+            {"pickup_iso": "2024-07-15T14:32:00", "dropoff_iso": "2024-07-15T14:40:00",
+             "PULocationID": 138, "trip_miles": 8.0, "trip_time_seconds": 480.0,
              "weather_temperature_c": 25.0, "weather_precipitation_mm": 0.0},
         ]
         events = _make_enriched_weather_df(spark, rows)
         # Project time_bucket to a NYC-formatted string column in Spark BEFORE
         # collecting. See _project_bucket_key docstring for the JVM-tz rationale.
         result = _project_bucket_key(agg.aggregate_window(events)).collect()
+        by_key = {(r["bucket_key"], r["zone_id"]): r for r in result}
+        assert len(by_key) == 3, f"expected 3 (window, zone) groups, got {len(by_key)}"
 
-        # Index by (bucket_key_string, zone_id) for tz-safe stable lookups.
-        # Filter to rows where pickup_count > 0 to focus on pickup activity.
-        pickup_rows = [r for r in result if r["pickup_count"] > 0]
-        by_key = {(r["bucket_key"], r["zone_id"]): r for r in pickup_rows}
-        assert len(by_key) == 3, f"expected 3 (window, zone) pickup groups, got {len(by_key)}"
-
-        # Window 14:30–14:45, zone 230: trips at 14:30 and 14:38 → count=2
         bucket_1430 = _bucket_key_str(2024, 7, 15, 14, 30)
         bucket_1445 = _bucket_key_str(2024, 7, 15, 14, 45)
+
+        # (14:30, 230): pickups at 14:30 and 14:38, dropoff at 14:42
         assert by_key[(bucket_1430, 230)]["pickup_count"] == 2
+        assert by_key[(bucket_1430, 230)]["dropoff_count"] == 1
+        # avg_trip_miles is pickup-side: avg(2.0, 4.0) = 3.0
         assert by_key[(bucket_1430, 230)]["avg_trip_miles"] == pytest.approx(3.0)
-        # Window 14:45–15:00, zone 230: trip at 14:46 → count=1
+
+        # (14:45, 230): pickup at 14:46, dropoffs at 14:55 (trip 2) and 14:58 (trip 3)
         assert by_key[(bucket_1445, 230)]["pickup_count"] == 1
-        # Window 14:30–14:45, zone 138: trip at 14:32 → count=1
+        assert by_key[(bucket_1445, 230)]["dropoff_count"] == 2
+
+        # (14:30, 138): pickup at 14:32, dropoff at 14:40 — both same window/zone
         assert by_key[(bucket_1430, 138)]["pickup_count"] == 1
+        assert by_key[(bucket_1430, 138)]["dropoff_count"] == 1
 
     def test_window_lower_bound_inclusive_upper_exclusive(self, spark):
         """time_bucket=14:30 means [14:30:00.000, 14:45:00.000).
@@ -285,17 +304,30 @@ class TestAggregateWindow:
         assert result[(bucket_1445, 230)] == 1
 
     def test_dropoff_count_uses_dropoff_window_and_dropoff_zone(self, spark):
-        """Interpretation (i): a trip with PU in window A, zone X and DO in
-        window B, zone Y produces:
-          (A, X) → pickup_count=1, dropoff_count=0
-          (B, Y) → pickup_count=0, dropoff_count=1
-        Two separate aggregation rows, joined nowhere because the keys differ.
+        """Inner-join semantics: a (window, zone) row emits only if BOTH
+        pickups AND dropoffs occurred there in the same window.
+
+        A single one-way trip (PU zone X window A, DO zone Y window B) does
+        NOT emit (X, A) or (Y, B) — neither key has both sides. Pure-origin
+        and pure-destination zones are excluded by design.
+
+        To exercise dropoff_count, we need at least one trip pair that lands
+        in the same (window, zone) for both pickup and dropoff sides.
         """
         rows = [
-            # Trip A: pickup in window 14:30, zone 230; dropoff in window 14:45, zone 138
-            {"pickup_iso": "2024-07-15T14:35:00", "dropoff_iso": "2024-07-15T14:50:00",
+            # Two trips that both pickup in zone 230 window 14:30:
+            {"pickup_iso": "2024-07-15T14:32:00", "dropoff_iso": "2024-07-15T14:50:00",
              "PULocationID": 230, "DOLocationID": 138,
              "trip_miles": 5.0, "trip_time_seconds": 900.0,
+             "weather_temperature_c": 25.0, "weather_precipitation_mm": 0.0},
+            {"pickup_iso": "2024-07-15T14:35:00", "dropoff_iso": "2024-07-15T14:55:00",
+             "PULocationID": 230, "DOLocationID": 138,
+             "trip_miles": 5.0, "trip_time_seconds": 900.0,
+             "weather_temperature_c": 25.0, "weather_precipitation_mm": 0.0},
+            # And one trip dropping off in zone 230 window 14:30 (started elsewhere):
+            {"pickup_iso": "2024-07-15T14:31:00", "dropoff_iso": "2024-07-15T14:40:00",
+             "PULocationID": 138, "DOLocationID": 230,
+             "trip_miles": 3.0, "trip_time_seconds": 540.0,
              "weather_temperature_c": 25.0, "weather_precipitation_mm": 0.0},
         ]
         events = _make_enriched_weather_df(spark, rows)
@@ -303,15 +335,21 @@ class TestAggregateWindow:
                   for r in _project_bucket_key(agg.aggregate_window(events)).collect()}
 
         bucket_1430 = _bucket_key_str(2024, 7, 15, 14, 30)
-        bucket_1445 = _bucket_key_str(2024, 7, 15, 14, 45)
 
-        # (14:30, zone 230): the pickup row
-        assert result[(bucket_1430, 230)]["pickup_count"] == 1
-        assert result[(bucket_1430, 230)]["dropoff_count"] == 0
+        # (14:30, zone 230) DOES emit: 2 pickups AND 1 dropoff in this window
+        assert (bucket_1430, 230) in result, (
+            "expected (14:30, zone 230) row — has both pickups and dropoffs in window"
+        )
+        assert result[(bucket_1430, 230)]["pickup_count"] == 2
+        assert result[(bucket_1430, 230)]["dropoff_count"] == 1
 
-        # (14:45, zone 138): the dropoff row, in a different window AND different zone
-        assert result[(bucket_1445, 138)]["pickup_count"] == 0
-        assert result[(bucket_1445, 138)]["dropoff_count"] == 1
+        # (14:30, zone 138) does NOT emit: 1 pickup but 0 dropoffs in this window
+        # (the trip starting at 14:31 in zone 138 drops off at 14:40 in zone 230,
+        # which is window 14:30 zone 230 — counted above, not here).
+        assert (bucket_1430, 138) not in result, (
+            "(14:30, zone 138) should NOT emit — has pickups but no dropoffs in window. "
+            "Inner-join semantics excludes pure-origin zones."
+        )
 
     def test_trip_time_converted_seconds_to_minutes(self, spark):
         """Block 3 emits trip_time in SECONDS (inherited from TLC source).
