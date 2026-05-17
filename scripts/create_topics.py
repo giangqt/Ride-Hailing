@@ -66,6 +66,8 @@ TOPICS: list[TopicSpec] = [
               "Hourly weather observations from fetch_weather.py"),
     TopicSpec("ride-events-enriched-weather", 12, "PULocationID", 48 * 3_600_000,
           "Trip events fully enriched with zone metadata + weather"),
+    TopicSpec("network-flow-updates",  6, "origin_zone_id", 7 * 24 * 3_600_000,
+              "Hourly OD pair flow counts from Spark Network job"),
 ]
 
 # Replication factor 3 matches our 3-broker cluster. min.insync.replicas=2
