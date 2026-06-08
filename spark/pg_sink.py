@@ -347,12 +347,18 @@ def _make_upsert_handler(table: str):
     cols = (TABLE_COLUMNS[table]
             if table != "network_flows"
             else ("time_window", "origin_zone_id", "dest_zone_id", "trip_count"))
+    key_cols = CONFLICT_KEYS[table]
+    key_idx  = [cols.index(k) for k in key_cols]
 
     def handler(batch_df: DataFrame, batch_id: int) -> None:
         rows = batch_df.collect()
         if not rows:
             return
-        values = [tuple(r[c] for c in cols) for r in rows]
+        seen = {}
+        for r in rows:
+            v = tuple(r[c] for c in cols)
+            seen[tuple(v[i] for i in key_idx)] = v
+        values = list(seen.values())
         conn = _pg_connect()
         try:
             with conn:
