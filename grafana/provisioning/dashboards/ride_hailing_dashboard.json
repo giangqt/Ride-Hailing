@@ -1,0 +1,530 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "liveNow": false,
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [
+    "ride-hailing",
+    "thesis"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "zone",
+        "label": "Zone",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "timescaledb"
+        },
+        "query": "SELECT zone_name AS __text, zone_id AS __value FROM taxi_zones ORDER BY zone_name",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "sort": 1,
+        "allValue": "0"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Ride-Hailing Mobility \u2014 NYC",
+  "uid": "ride-hailing-main",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Real-Time Demand Heatmap",
+      "type": "geomap",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT z.centroid_lat AS latitude, z.centroid_lon AS longitude, z.zone_name AS name, SUM(h.pickup_count) AS pickups FROM hourly_demand h JOIN taxi_zones z ON z.zone_id = h.zone_id WHERE h.time_bucket BETWEEN $__timeFrom() AND $__timeTo() GROUP BY z.zone_id, z.centroid_lat, z.centroid_lon, z.zone_name HAVING SUM(h.pickup_count) > 0"
+        }
+      ],
+      "options": {
+        "view": {
+          "id": "coords",
+          "lat": 40.73,
+          "lon": -73.94,
+          "zoom": 10
+        },
+        "controls": {
+          "showZoom": true,
+          "showAttribution": true
+        },
+        "basemap": {
+          "type": "default",
+          "name": "Basemap"
+        },
+        "layers": [
+          {
+            "type": "heatmap",
+            "name": "Pickup density",
+            "location": {
+              "mode": "coords",
+              "latitude": "latitude",
+              "longitude": "longitude"
+            },
+            "config": {
+              "weight": {
+                "field": "pickups",
+                "fixed": 1,
+                "min": 0,
+                "max": 1
+              },
+              "radius": 22,
+              "blur": 18
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "title": "Hourly Demand Curve",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(time_bucket, '1h') AS time, SUM(pickup_count) AS pickups FROM hourly_demand WHERE $__timeFilter(time_bucket) AND ($zone = 0 OR zone_id = $zone) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Borough Comparison",
+      "type": "barchart",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT z.borough, SUM(h.pickup_count) AS pickups FROM hourly_demand h JOIN taxi_zones z ON z.zone_id = h.zone_id WHERE $__timeFilter(h.time_bucket) GROUP BY z.borough ORDER BY pickups DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "options": {
+        "xField": "borough",
+        "orientation": "horizontal",
+        "showValue": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Hotspot Alerts",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT a.detected_at AS time, z.zone_name, z.borough, a.demand_current, a.demand_baseline, ROUND(a.ratio::numeric, 2) AS ratio, a.severity FROM hotspot_alerts a JOIN taxi_zones z ON z.zone_id = a.zone_id WHERE $__timeFilter(a.detected_at) ORDER BY a.detected_at DESC LIMIT 100"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "severity"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "warning": {
+                        "color": "orange",
+                        "index": 0
+                      },
+                      "critical": {
+                        "color": "red",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      },
+      "description": "Hotspots where hourly demand >= 2x the zone's own baseline (mean hourly pickups, floor 1.0). Severity: 2.0-3.0 = warning, >=3.0 = critical. Populated by batch reconstruction of the 2x rule over historical hourly_demand; the live Spark aggregation path (Phase 3 Block 4) remains future work."
+    },
+    {
+      "id": 5,
+      "title": "Forecast vs Actual",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(time_bucket, '1h') AS time, SUM(pickup_count) AS actual FROM hourly_demand WHERE $__timeFilter(time_bucket) AND ($zone = 0 OR zone_id = $zone) GROUP BY 1 ORDER BY 1"
+        },
+        {
+          "refId": "B",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(forecast_time, '1h') AS time, SUM(predicted_demand) AS predicted FROM forecast_results WHERE $__timeFilter(forecast_time) AND ($zone = 0 OR zone_id = $zone) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 5
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Forecast (ARIMA/ETS) vs actual demand. Covers the top-10 demand zones modelled in Phase 4 (TriBeCa, West Chelsea/Hudson Yards, JFK, East New York, East Village, LaGuardia, Midtown Center, Times Sq, East Chelsea, Crown Heights North). Other zones show 'No data' by design."
+    },
+    {
+      "id": 6,
+      "title": "Top OD Flows (Network)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT zo.zone_name AS origin, zd.zone_name AS destination, SUM(f.trip_count) AS trips, ROUND(MAX(f.betweenness)::numeric, 4) AS max_betweenness FROM network_flows f JOIN taxi_zones zo ON zo.zone_id = f.origin_zone_id JOIN taxi_zones zd ON zd.zone_id = f.dest_zone_id WHERE $__timeFilter(f.time_window) GROUP BY zo.zone_name, zd.zone_name ORDER BY trips DESC LIMIT 25"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 7,
+      "title": "Weather Correlation",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(time_bucket, '1h') AS time, SUM(pickup_count) AS demand, AVG(avg_temperature) AS temp_c, AVG(precipitation_mm) AS precip_mm FROM hourly_demand WHERE $__timeFilter(time_bucket) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "temp_c"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "unit",
+                "value": "celsius"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "precip_mm"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "System Health \u2014 DB Connections & Table Freshness",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT 'trip_events' AS table_name, COUNT(*) AS rows, MAX(pickup_datetime) AS latest FROM trip_events UNION ALL SELECT 'hourly_demand', COUNT(*), MAX(time_bucket) FROM hourly_demand UNION ALL SELECT 'forecast_results', COUNT(*), MAX(forecast_time) FROM forecast_results UNION ALL SELECT 'spatial_statistics', COUNT(*), MAX(analysis_time) FROM spatial_statistics UNION ALL SELECT 'temporal_anomalies', COUNT(*), MAX(detected_at) FROM temporal_anomalies UNION ALL SELECT 'network_flows', COUNT(*), MAX(time_window) FROM network_flows ORDER BY table_name"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 9,
+      "title": "Spatial Statistics \u2014 Gi* / LISA Hotspots",
+      "type": "geomap",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT z.centroid_lat AS latitude, z.centroid_lon AS longitude, z.zone_name AS name, s.gi_star_z, s.lisa_cluster, s.is_significant_hotspot FROM spatial_statistics s JOIN taxi_zones z ON z.zone_id = s.zone_id WHERE s.analysis_time = (SELECT MAX(analysis_time) FROM spatial_statistics)"
+        }
+      ],
+      "options": {
+        "view": {
+          "id": "coords",
+          "lat": 40.73,
+          "lon": -73.94,
+          "zoom": 10
+        },
+        "controls": {
+          "showZoom": true
+        },
+        "basemap": {
+          "type": "default"
+        },
+        "layers": [
+          {
+            "type": "markers",
+            "name": "Gi* z-score",
+            "location": {
+              "mode": "coords",
+              "latitude": "latitude",
+              "longitude": "longitude"
+            },
+            "config": {
+              "size": {
+                "field": "gi_star_z",
+                "min": 4,
+                "max": 18
+              },
+              "color": {
+                "field": "gi_star_z"
+              },
+              "showLegend": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "title": "Temporal Anomalies (ADTK)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT t.detected_at AS time, z.zone_name, t.anomaly_type, ROUND(t.anomaly_score::numeric, 3) AS score, t.demand_value, t.expected_value FROM temporal_anomalies t JOIN taxi_zones z ON z.zone_id = t.zone_id WHERE $__timeFilter(t.detected_at) AND t.is_anomaly = true ORDER BY t.detected_at DESC LIMIT 100"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 11,
+      "title": "Trend Decomposition (Prophet)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT analysis_time AS time, trend_value AS trend, seasonal_weekly AS weekly_seasonality FROM trend_decomposition WHERE $__timeFilter(analysis_time) AND ($zone = 0 OR zone_id = $zone) ORDER BY analysis_time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 0
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Prophet trend & weekly-seasonality decomposition. Covers the top-10 demand zones modelled in Phase 4 (TriBeCa, West Chelsea/Hudson Yards, JFK, East New York, East Village, LaGuardia, Midtown Center, Times Sq, East Chelsea, Crown Heights North). Other zones show 'No data' by design."
+    }
+  ]
+}

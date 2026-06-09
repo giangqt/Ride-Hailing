@@ -1,0 +1,18 @@
+apiVersion: 1
+
+datasources:
+  - name: TimescaleDB
+    type: postgres
+    access: proxy
+    uid: timescaledb
+    url: postgres:5432
+    user: rides
+    isDefault: true
+    editable: true
+    jsonData:
+      database: rides
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: true
+    secureJsonData:
+      password: rides

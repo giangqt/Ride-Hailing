@@ -284,6 +284,27 @@ services:
       timeout: 5s
       retries: 10
 
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: grafana
+    hostname: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: ""
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ride-net
+
 # =============================================================================
 # Networks & volumes
 # =============================================================================
@@ -300,3 +321,4 @@ volumes:
   spark-checkpoints:
   spark-ivy:
   postgres-data:
+  grafana-data:
