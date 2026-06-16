@@ -48,6 +48,280 @@
   "version": 1,
   "panels": [
     {
+      "id": 100,
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 101,
+      "type": "stat",
+      "title": "Total Trips",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 0,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT SUM(trips) AS value FROM agg_hour_dow"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "unit": "short",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {
+          "valueSize": 34,
+          "titleSize": 13
+        }
+      }
+    },
+    {
+      "id": 102,
+      "type": "stat",
+      "title": "Avg Daily Trips",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 5,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT ROUND(SUM(trips)/30.0) AS value FROM agg_hour_dow"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "unit": "short",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {
+          "valueSize": 34,
+          "titleSize": 13
+        }
+      }
+    },
+    {
+      "id": 103,
+      "type": "stat",
+      "title": "Total Pickups",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 10,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT SUM(pickup_count) AS value FROM hourly_demand"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "purple"
+          },
+          "unit": "short",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {
+          "valueSize": 34,
+          "titleSize": 13
+        }
+      }
+    },
+    {
+      "id": 104,
+      "type": "stat",
+      "title": "Active Zones",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 15,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT COUNT(DISTINCT zone_id) AS value FROM hourly_demand"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {
+          "valueSize": 34,
+          "titleSize": 13
+        }
+      }
+    },
+    {
+      "id": 105,
+      "type": "stat",
+      "title": "Avg Trip (min)",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT ROUND(SUM(mid*trips)/SUM(trips),1) AS value FROM (SELECT CASE bucket WHEN '0-5' THEN 2.5 WHEN '05-10' THEN 7.5 WHEN '10-15' THEN 12.5 WHEN '15-20' THEN 17.5 WHEN '20-30' THEN 25 WHEN '30-45' THEN 37.5 WHEN '45-60' THEN 52.5 ELSE 75 END AS mid, trips FROM agg_duration) q"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "unit": "m",
+          "decimals": 1,
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {
+          "valueSize": 34,
+          "titleSize": 13
+        }
+      }
+    },
+    {
       "id": 1,
       "title": "Real-Time Demand Heatmap",
       "type": "geomap",
@@ -59,7 +333,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 0
+        "y": 5
       },
       "targets": [
         {
@@ -118,7 +392,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 0
+        "y": 5
       },
       "targets": [
         {
@@ -132,7 +406,10 @@
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
-            "fillOpacity": 10
+            "fillOpacity": 0,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
           }
         }
       },
@@ -157,7 +434,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 10
+        "y": 15
       },
       "targets": [
         {
@@ -191,7 +468,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 10
+        "y": 15
       },
       "targets": [
         {
@@ -254,7 +531,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 10
+        "y": 15
       },
       "targets": [
         {
@@ -298,7 +575,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 18
+        "y": 23
       },
       "targets": [
         {
@@ -323,7 +600,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 18
+        "y": 23
       },
       "targets": [
         {
@@ -336,10 +613,31 @@
         "defaults": {
           "custom": {
             "drawStyle": "line",
-            "fillOpacity": 8
+            "fillOpacity": 6,
+            "lineWidth": 1.5,
+            "showPoints": "never"
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "demand"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "left"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -353,6 +651,17 @@
               {
                 "id": "unit",
                 "value": "celsius"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Temperature"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
               }
             ]
           },
@@ -365,6 +674,21 @@
               {
                 "id": "custom.axisPlacement",
                 "value": "right"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 40
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
               }
             ]
           }
@@ -372,7 +696,8 @@
       },
       "options": {
         "legend": {
-          "showLegend": true
+          "showLegend": true,
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi"
@@ -391,13 +716,13 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 31
       },
       "targets": [
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT 'trip_events' AS table_name, COUNT(*) AS rows, MAX(pickup_datetime) AS latest FROM trip_events UNION ALL SELECT 'hourly_demand', COUNT(*), MAX(time_bucket) FROM hourly_demand UNION ALL SELECT 'forecast_results', COUNT(*), MAX(forecast_time) FROM forecast_results UNION ALL SELECT 'spatial_statistics', COUNT(*), MAX(analysis_time) FROM spatial_statistics UNION ALL SELECT 'temporal_anomalies', COUNT(*), MAX(detected_at) FROM temporal_anomalies UNION ALL SELECT 'network_flows', COUNT(*), MAX(time_window) FROM network_flows ORDER BY table_name"
+          "rawSql": "SELECT 'trip_events' AS table_name, (SELECT SUM(trips) FROM agg_hour_dow) AS rows, (SELECT MAX(pickup_datetime) FROM trip_events) AS latest UNION ALL SELECT 'hourly_demand', COUNT(*), MAX(time_bucket) FROM hourly_demand UNION ALL SELECT 'forecast_results', COUNT(*), MAX(forecast_time) FROM forecast_results UNION ALL SELECT 'spatial_statistics', COUNT(*), MAX(analysis_time) FROM spatial_statistics UNION ALL SELECT 'temporal_anomalies', COUNT(*), MAX(detected_at) FROM temporal_anomalies UNION ALL SELECT 'network_flows', COUNT(*), MAX(time_window) FROM network_flows ORDER BY table_name"
         }
       ],
       "options": {
@@ -416,7 +741,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 31
       },
       "targets": [
         {
@@ -474,7 +799,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 34
+        "y": 39
       },
       "targets": [
         {
@@ -499,13 +824,13 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 34
+        "y": 39
       },
       "targets": [
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT analysis_time AS time, trend_value AS trend, seasonal_weekly AS weekly_seasonality FROM trend_decomposition WHERE $__timeFilter(analysis_time) AND ($zone = 0 OR zone_id = $zone) ORDER BY analysis_time"
+          "rawSql": "SELECT analysis_time AS time, trend_value AS trend, seasonal_weekly AS weekly_seasonality FROM trend_decomposition WHERE zone_id = (CASE WHEN $zone = 0 THEN 132 ELSE $zone END) AND $__timeFilter(analysis_time) ORDER BY analysis_time"
         }
       ],
       "fieldConfig": {
@@ -524,7 +849,193 @@
           "mode": "multi"
         }
       },
-      "description": "Prophet trend & weekly-seasonality decomposition. Covers the top-10 demand zones modelled in Phase 4 (TriBeCa, West Chelsea/Hudson Yards, JFK, East New York, East Village, LaGuardia, Midtown Center, Times Sq, East Chelsea, Crown Heights North). Other zones show 'No data' by design."
+      "description": "Prophet trend & weekly-seasonality decomposition (per zone). Decomposition is meaningful one zone at a time, so 'All' defaults to JFK (zone 132). Select a specific modelled zone to see its decomposition. Early-window spikes are pipeline-gap artifacts documented in Phase 4."
+    },
+    {
+      "id": 200,
+      "type": "row",
+      "title": "Temporal Patterns",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 201,
+      "type": "heatmap",
+      "title": "Demand Heatmap \u2014 Hour x Day of Week",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 49
+      },
+      "description": "Trips by hour-of-day (X) and day-of-week (Y, 0=Mon..6=Sun). Color = volume. Precise 7x24 grid is in Colab notebook 03 (matplotlib).",
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT hour_of_day AS hour, day_of_week AS day, trips FROM agg_hour_dow ORDER BY day_of_week, hour_of_day"
+        }
+      ],
+      "options": {
+        "calculate": false,
+        "cellGap": 1,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Turbo",
+          "steps": 64,
+          "exponent": 0.5,
+          "reverse": false
+        },
+        "legend": {
+          "show": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "show": true
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "decimals": 0,
+          "axisLabel": "Day (0=Mon)"
+        }
+      }
+    },
+    {
+      "id": 202,
+      "type": "barchart",
+      "title": "Rides by Day of Week",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 49
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT CASE day_of_week WHEN 0 THEN 'Mon' WHEN 1 THEN 'Tue' WHEN 2 THEN 'Wed' WHEN 3 THEN 'Thu' WHEN 4 THEN 'Fri' WHEN 5 THEN 'Sat' WHEN 6 THEN 'Sun' END AS day, SUM(trips) AS trips FROM agg_hour_dow GROUP BY day_of_week ORDER BY day_of_week"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "day",
+        "orientation": "vertical",
+        "showValue": "never",
+        "legend": {
+          "showLegend": false
+        }
+      }
+    },
+    {
+      "id": 203,
+      "type": "barchart",
+      "title": "Weekday vs Weekend \u2014 Hourly Profile",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 58
+      },
+      "description": "Average trips per hour, split by weekday vs weekend. Weekdays show the commuter double-peak; weekends shift later.",
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT hour_of_day::text AS hour, weekday, weekend FROM agg_hourly_profile ORDER BY hour_of_day"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "hour",
+        "orientation": "vertical",
+        "showValue": "never",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "legend": {
+          "showLegend": true,
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 204,
+      "type": "barchart",
+      "title": "Trip Duration Distribution (minutes)",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 58
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT bucket, trips FROM agg_duration ORDER BY ord"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "bucket",
+        "orientation": "vertical",
+        "showValue": "never",
+        "legend": {
+          "showLegend": false
+        }
+      }
     }
   ]
 }
