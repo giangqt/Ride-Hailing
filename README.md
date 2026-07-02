@@ -158,10 +158,9 @@ ride-hailing/
 │   ├── dashboards/ride_hailing_dashboard.json
 │   └── datasources/
 ├── data/
-│   ├── raw_trips/              # fhvhv_tripdata_YYYY-MM.parquet
-│   ├── zones/                  # shapefile, GeoJSON, lookup CSV, centroids CSV
-│   ├── weather/                # hourly_weather.csv (append-only)
-│   └── validation_reports/     # one JSON per validate_data.py run
+│   ├── zones/                  # NYC taxi zone shapefile, GeoJSON, lookup CSV, centroids CSV
+│   └── hanoi/                  # UTM-Hanoi survey CSV + Hanoi admin boundary shapefile
+│                               # (raw_trips/, weather/, validation_reports/ are gitignored)
 └── crontab.txt
 ```
 
