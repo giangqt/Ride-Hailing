@@ -38,8 +38,8 @@
     ]
   },
   "time": {
-    "from": "now-30d",
-    "to": "now"
+    "from": "2026-05-10T00:00:00.000Z",
+    "to": "2026-06-11T00:00:00.000Z"
   },
   "timepicker": {},
   "timezone": "browser",
@@ -731,7 +731,7 @@
     },
     {
       "id": 9,
-      "title": "Spatial Statistics \u2014 Gi* / LISA Hotspots",
+      "title": "Spatial Statistics \u2014 Analyzed Zones (Gi*/LISA)",
       "type": "geomap",
       "datasource": {
         "type": "postgres",
@@ -747,7 +747,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT z.centroid_lat AS latitude, z.centroid_lon AS longitude, z.zone_name AS name, s.gi_star_z, s.lisa_cluster, s.is_significant_hotspot FROM spatial_statistics s JOIN taxi_zones z ON z.zone_id = s.zone_id WHERE s.analysis_time = (SELECT MAX(analysis_time) FROM spatial_statistics)"
+          "rawSql": "SELECT z.centroid_lat AS latitude, z.centroid_lon AS longitude, z.zone_name AS name, s.lisa_cluster, s.gi_star_z FROM spatial_statistics s JOIN taxi_zones z ON z.zone_id = s.zone_id WHERE s.analysis_time = (SELECT MAX(analysis_time) FROM spatial_statistics)"
         }
       ],
       "options": {
@@ -766,7 +766,7 @@
         "layers": [
           {
             "type": "markers",
-            "name": "Gi* z-score",
+            "name": "Analyzed zones",
             "location": {
               "mode": "coords",
               "latitude": "latitude",
@@ -774,17 +774,22 @@
             },
             "config": {
               "size": {
-                "field": "gi_star_z",
-                "min": 4,
-                "max": 18
+                "fixed": 6
               },
               "color": {
-                "field": "gi_star_z"
+                "fixed": "green"
               },
-              "showLegend": true
+              "opacity": 0.8
             }
           }
         ]
+      },
+      "description": "Zones included in the latest Gi*/LISA spatial analysis (261 zones; 43 HH hot clusters, 45 LL cold clusters, 12 spatial outliers, 161 not significant). The colored LISA cluster map is produced by PySAL in Colab notebook 06; Grafana geomap in this build does not bind data-driven marker color.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
       }
     },
     {
